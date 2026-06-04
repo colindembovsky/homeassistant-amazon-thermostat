@@ -87,11 +87,28 @@ class AmazonThermostatClimate(
         return self.coordinator.data[self._endpoint_id]
 
     @property
+    def _has_range(self) -> bool:
+        """Return whether the thermostat exposes a heat/cool setpoint range."""
+        return (
+            self.hvac_mode == HVACMode.HEAT_COOL
+            and self._data.lower_setpoint is not None
+            and self._data.upper_setpoint is not None
+        )
+
+    @property
     def supported_features(self) -> ClimateEntityFeature:
-        """Return supported climate features for this thermostat."""
-        features = ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.PRESET_MODE
-        if self._data.lower_setpoint is not None and self._data.upper_setpoint is not None:
+        """Return supported climate features for this thermostat.
+
+        Heat/cool mode advertises a target temperature *range* (dual setpoint)
+        while single modes advertise a single target temperature. Exposing both
+        at once makes the frontend render a single setpoint slider instead of
+        the dual heat/cool handles.
+        """
+        features = ClimateEntityFeature.PRESET_MODE
+        if self._has_range:
             features |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+        else:
+            features |= ClimateEntityFeature.TARGET_TEMPERATURE
         return features
 
     @property
@@ -113,22 +130,27 @@ class AmazonThermostatClimate(
 
     @property
     def target_temperature(self) -> float | None:
-        """Return target temperature."""
-        if self.hvac_mode == HVACMode.HEAT_COOL:
-            low = self.target_temperature_low
-            high = self.target_temperature_high
-            if low is not None and high is not None:
-                return (low + high) / 2
+        """Return target temperature.
+
+        Returns ``None`` in heat/cool mode so the frontend renders the dual
+        low/high handles instead of a single setpoint slider.
+        """
+        if self._has_range:
+            return None
         return self._data.target_setpoint.value if self._data.target_setpoint else None
 
     @property
     def target_temperature_low(self) -> float | None:
         """Return low target temperature."""
+        if not self._has_range:
+            return None
         return self._data.lower_setpoint.value if self._data.lower_setpoint else None
 
     @property
     def target_temperature_high(self) -> float | None:
         """Return high target temperature."""
+        if not self._has_range:
+            return None
         return self._data.upper_setpoint.value if self._data.upper_setpoint else None
 
     @property
@@ -144,18 +166,21 @@ class AmazonThermostatClimate(
         return PRESET_NONE
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set HVAC mode."""
+        """Set HVAC mode.
+
+        These Alexa thermostats do not implement the PowerController, so a
+        dedicated ``turnOff``/``turnOn`` is rejected with ``BAD_REQUEST``.
+        Setting ``thermostatMode`` (including ``OFF``) is the supported path,
+        matching the Homebridge plugin's behavior for non-power devices.
+        """
+        alexa_mode = "OFF" if hvac_mode == HVACMode.OFF else HA_TO_ALEXA_MODE.get(hvac_mode)
+        if alexa_mode is None:
+            raise HomeAssistantError(f"Unsupported HVAC mode: {hvac_mode}")
         try:
-            if hvac_mode == HVACMode.OFF:
-                await self.coordinator.api.async_turn_off(self._endpoint_id)
-            else:
-                alexa_mode = HA_TO_ALEXA_MODE[hvac_mode]
-                if self.hvac_mode == HVACMode.OFF:
-                    await self.coordinator.api.async_turn_on(self._endpoint_id)
-                await self.coordinator.api.async_set_thermostat_mode(
-                    self._endpoint_id, alexa_mode
-                )
-        except (KeyError, AmazonThermostatError) as err:
+            await self.coordinator.api.async_set_thermostat_mode(
+                self._endpoint_id, alexa_mode
+            )
+        except AmazonThermostatError as err:
             raise HomeAssistantError(f"Failed to set HVAC mode: {err}") from err
         await self.coordinator.async_request_refresh()
 
@@ -206,17 +231,9 @@ class AmazonThermostatClimate(
         )
 
     async def async_turn_on(self) -> None:
-        """Turn on the thermostat."""
-        try:
-            await self.coordinator.api.async_turn_on(self._endpoint_id)
-        except AmazonThermostatError as err:
-            raise HomeAssistantError(f"Failed to turn on thermostat: {err}") from err
-        await self.coordinator.async_request_refresh()
+        """Turn on the thermostat (heat/cool) via thermostat mode."""
+        await self.async_set_hvac_mode(HVACMode.HEAT_COOL)
 
     async def async_turn_off(self) -> None:
-        """Turn off the thermostat."""
-        try:
-            await self.coordinator.api.async_turn_off(self._endpoint_id)
-        except AmazonThermostatError as err:
-            raise HomeAssistantError(f"Failed to turn off thermostat: {err}") from err
-        await self.coordinator.async_request_refresh()
+        """Turn off the thermostat via thermostat mode."""
+        await self.async_set_hvac_mode(HVACMode.OFF)
