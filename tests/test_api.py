@@ -257,7 +257,10 @@ def test_cookie2_proxy_rewrites_set_cookie_for_browser_cvf() -> None:
     proxy = Cookie2LoginProxy(None, state)  # type: ignore[arg-type]
 
     cookie = proxy._rewrite_set_cookie(
-        "session-id=abc; Domain=.amazon.com; Path=/; Secure; HttpOnly"
+        "session-id=abc; Domain=.amazon.com; Path=/ap; Secure; HttpOnly"
     )
 
-    assert cookie == "session-id=abc; Path=/; HttpOnly"
+    assert (
+        cookie
+        == "session-id=abc; Path=/auth/amazon_thermostat/proxy; HttpOnly"
+    )

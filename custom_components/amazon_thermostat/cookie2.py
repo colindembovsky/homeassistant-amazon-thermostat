@@ -287,12 +287,20 @@ class Cookie2LoginProxy:
     def _rewrite_set_cookie(self, value: str) -> str:
         """Rewrite Amazon cookies so browser-side CVF pages can use them."""
         parts = []
+        proxy_path = URL(self.state.proxy_base_url).path or "/"
+        path_added = False
         for part in value.split(";"):
             stripped = part.strip()
             lower = stripped.lower()
             if lower == "secure" or lower.startswith("domain="):
                 continue
+            if lower.startswith("path="):
+                parts.append(f"Path={proxy_path}")
+                path_added = True
+                continue
             parts.append(stripped)
+        if not path_added:
+            parts.append(f"Path={proxy_path}")
         return "; ".join(parts)
 
 
