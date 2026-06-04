@@ -1,5 +1,0 @@
-
-[test]
-aiohttp
-pytest
-pytest-asyncio

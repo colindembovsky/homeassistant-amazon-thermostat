@@ -4,3 +4,5 @@ __pycache__/
 .venv/
 *.py[cod]
 
+
+*.egg-info/
