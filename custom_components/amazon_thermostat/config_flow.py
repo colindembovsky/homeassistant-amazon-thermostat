@@ -45,16 +45,18 @@ from .const import (
     CONF_HASS_URL,
     CONF_OAUTH,
     CONF_POLL_INTERVAL,
+    CONF_PROXY_PORT,
     CONF_PUBLIC_URL,
     DEFAULT_AMAZON_DOMAIN,
     DEFAULT_HASS_URL,
     DEFAULT_POLL_INTERVAL,
+    DEFAULT_PROXY_PORT,
     DOMAIN,
     MAX_POLL_INTERVAL,
     MIN_POLL_INTERVAL,
     SUPPORTED_AMAZON_DOMAINS,
 )
-from .cookie2 import Cookie2LoginProxy, Cookie2State, complete_cookie2_login
+from .cookie2 import Cookie2ProxyServer, Cookie2State, complete_cookie2_login
 from .models import AmazonThermostatAuthError, AmazonThermostatError
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,6 +73,7 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
         self._login: Any | None = None
         self._proxy: Any | None = None
         self._cookie2_state: Cookie2State | None = None
+        self._cookie2_server: Cookie2ProxyServer | None = None
         self._proxy_view: AmazonThermostatAuthorizationProxyView | None = None
         self._reauth_entry: Any | None = None
 
@@ -115,12 +118,14 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_cookie2_credentials(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Collect proxy URLs and start the cookie2-compatible login."""
+        """Collect proxy settings and start the cookie2-compatible login."""
         errors: dict[str, str] = {}
         if user_input is not None:
             self._flow_data.update(user_input)
             try:
                 return await self._async_start_cookie2_proxy()
+            except OSError:
+                errors["base"] = "proxy_port_in_use"
             except ValueError:
                 errors["base"] = "invalid_url"
 
@@ -129,7 +134,12 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Optional(CONF_HASS_URL, default=self._default_hass_url()): str,
-                    vol.Optional(CONF_PUBLIC_URL, default=self._default_public_url()): str,
+                    vol.Optional(
+                        CONF_PUBLIC_URL, default=self._default_public_url()
+                    ): str,
+                    vol.Required(
+                        CONF_PROXY_PORT, default=self._default_proxy_port()
+                    ): vol.All(vol.Coerce(int), vol.Range(min=1024, max=65535)),
                 }
             ),
             errors=errors,
@@ -215,14 +225,19 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def _async_finish_cookie2_proxy(self) -> ConfigFlowResult:
         """Finish the cookie2-compatible proxy auth."""
-        if self._cookie2_state is None:
+        if self._cookie2_state is None or self._cookie2_server is None:
             return self.async_abort(reason="login_failed")
 
-        session = async_get_clientsession(self.hass)
+        proxy_session = self._cookie2_server.session
+        runtime_session = async_get_clientsession(self.hass)
         try:
-            cookie_data = await complete_cookie2_login(session, self._cookie2_state)
+            if proxy_session is None:
+                return self.async_abort(reason="login_failed")
+            cookie_data = await complete_cookie2_login(
+                proxy_session, self._cookie2_state
+            )
             provider = Cookie2AuthSessionProvider(
-                session,
+                runtime_session,
                 self._flow_data[CONF_AMAZON_DOMAIN],
                 cookie_data,
             )
@@ -231,6 +246,9 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="login_failed")
         except AmazonThermostatError:
             return self.async_abort(reason="cannot_connect")
+        finally:
+            await self._cookie2_server.stop()
+            self._cookie2_server = None
 
         unique_id = _account_unique_id(
             cookie_data.get("refreshToken") or cookie_data.get("deviceId", ""),
@@ -325,12 +343,23 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
         return await self.async_step_manual()
 
     async def _async_start_cookie2_proxy(self) -> ConfigFlowResult:
-        """Start the cookie2-compatible browser proxy."""
-        public_url = self._flow_data.get(CONF_PUBLIC_URL) or self._flow_data.get(CONF_HASS_URL)
+        """Start the standalone root-mounted cookie2 browser proxy.
+
+        The proxy is served at the root of its own host/port (like the
+        Homebridge alexa-cookie2 proxy) so Amazon's root-relative CVF requests
+        are intercepted. A sub-path proxy cannot capture those.
+        """
+        public_url = self._flow_data.get(CONF_PUBLIC_URL) or self._flow_data.get(
+            CONF_HASS_URL
+        )
         hass_url = public_url or self._default_hass_url()
-        proxy_base_url = str(URL(hass_url).with_path(AUTH_PROXY_PATH)).rstrip("/")
+        proxy_host = URL(hass_url).host
+        if not proxy_host:
+            raise ValueError("Could not determine proxy host from Home Assistant URL")
+        proxy_port = int(self._flow_data.get(CONF_PROXY_PORT, DEFAULT_PROXY_PORT))
+        proxy_base_url = f"http://{proxy_host}:{proxy_port}"
         callback_url = str(
-            URL(hass_url)
+            URL(self._flow_data.get(CONF_HASS_URL) or hass_url)
             .with_path(AUTH_CALLBACK_PATH)
             .with_query({"flow_id": self.flow_id})
         )
@@ -340,19 +369,20 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
             callback_url=callback_url,
             flow_id=self.flow_id,
         )
-        proxy = Cookie2LoginProxy(async_get_clientsession(self.hass), self._cookie2_state)
-        if not self._proxy_view:
-            self._proxy_view = AmazonThermostatAuthorizationProxyView(proxy.handle)
-        else:
-            self._proxy_view.handler = proxy.handle
 
+        if self._cookie2_server is not None:
+            await self._cookie2_server.stop()
+        self._cookie2_server = Cookie2ProxyServer(self._cookie2_state)
+        # Raises OSError if the port is already in use; handled by the caller.
+        await self._cookie2_server.start("0.0.0.0", proxy_port)
+
+        # The proxy redirects the browser to this Home Assistant callback to
+        # resume the config flow once the OAuth code is captured.
         self.hass.http.register_view(AmazonThermostatAuthorizationCallbackView())
-        self.hass.http.register_view(self._proxy_view)
 
-        proxy_url = URL(proxy_base_url).with_query(
-            {"config_flow_id": self.flow_id, "callback_url": callback_url}
+        return self.async_external_step(
+            step_id="check_proxy", url=f"{proxy_base_url}/"
         )
-        return self.async_external_step(step_id="check_proxy", url=str(proxy_url))
 
     async def _async_start_proxy(self) -> ConfigFlowResult:
         """Start alexapy's browser-based proxy login."""
@@ -427,6 +457,10 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
     def _default_public_url(self) -> str:
         """Return the external Home Assistant URL when available."""
         return self._flow_data.get(CONF_PUBLIC_URL, "")
+
+    def _default_proxy_port(self) -> int:
+        """Return the proxy port for the standalone login server."""
+        return int(self._flow_data.get(CONF_PROXY_PORT, DEFAULT_PROXY_PORT))
 
 
 class AmazonThermostatAuthorizationCallbackView(HomeAssistantView):

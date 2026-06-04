@@ -23,6 +23,7 @@ CONF_OAUTH = "oauth"
 CONF_OTPSECRET = "otp_secret"
 CONF_PASSWORD = "password"
 CONF_POLL_INTERVAL = "poll_interval"
+CONF_PROXY_PORT = "proxy_port"
 CONF_PUBLIC_URL = "public_url"
 
 AUTH_METHOD_ALEXAPY = "alexapy"
@@ -37,6 +38,7 @@ AUTH_PROXY_PATH = f"/auth/{DOMAIN}/proxy"
 
 DEFAULT_AMAZON_DOMAIN = "amazon.com"
 DEFAULT_HASS_URL = "http://homeassistant.local:8123/"
+DEFAULT_PROXY_PORT = 8124
 DEFAULT_POLL_INTERVAL = 60
 MIN_POLL_INTERVAL = 60
 MAX_POLL_INTERVAL = 3600

@@ -76,8 +76,24 @@ During setup:
    `http://homeassistant.local:8123/`.
 4. Optionally enter an **External Home Assistant URL** if you use Nabu Casa or a
    reverse proxy.
-5. Complete the Amazon login page that opens through Home Assistant. Enter your
-   Amazon username, password, and MFA code on that Amazon page.
+5. Confirm the **Login proxy port** (default `8124`). The guided login runs a
+   small reverse proxy at the *root* of this dedicated port, mirroring how the
+   Homebridge `alexa-cookie2` proxy runs on its own host/port. This is required
+   so Amazon's mobile-verification (CVF) page — a single-page app that makes
+   root-relative requests such as `/ap/cvf/verify` — is correctly intercepted.
+   A Home Assistant sub-path proxy cannot capture those requests, which is why
+   verification fails there.
+6. Complete the Amazon login page that opens through Home Assistant. It opens at
+   `http://homeassistant.local:8124/` (your host and chosen port). Enter your
+   Amazon username, password, and MFA code on that Amazon page. For the best
+   chance of success, open this from a device/browser that does **not** have the
+   Alexa app installed.
+
+> **Docker/Container note:** the login proxy binds the dedicated port (default
+> `8124`) on the Home Assistant host. On Home Assistant OS/Supervised this works
+> out of the box. On Home Assistant Container/Docker you must publish that port
+> (for example `-p 8124:8124`) so the browser can reach it. This is the same
+> limitation the Homebridge proxy has.
 
 The integration intentionally does not autofill Amazon credentials. This avoids
 blank Home Assistant form values interfering with Amazon's MFA or verification
@@ -87,13 +103,11 @@ If guided login is unavailable, try **Fallback: alexapy guided login**. If both
 guided methods fail, choose **Advanced: manual cookie and CSRF** and paste a
 current Alexa web cookie header plus its matching CSRF token.
 
-If the guided login reaches an `/ap/cvf/request` URL and Amazon says it cannot
-verify your mobile number, Amazon has selected its phone/SMS verification path.
-That path is unreliable in unofficial Alexa proxies. Use app-based MFA/TOTP on
-your Amazon account if available, open the login from a desktop browser without
-the Alexa app installed, and try setting **Home Assistant URL** to your
-instance's LAN IP address, for example `http://192.168.1.50:8123/`, instead of
-`homeassistant.local`.
+If Amazon still selects its phone/SMS verification path and says it cannot verify
+your mobile number, use app-based MFA/TOTP on your Amazon account if available,
+open the login from a desktop browser without the Alexa app installed, and try
+setting **Home Assistant URL** to your instance's LAN IP address, for example
+`http://192.168.1.50:8123/`, instead of `homeassistant.local`.
 
 ## Security warning
 

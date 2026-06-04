@@ -1,4 +1,12 @@
-"""Python port of the alexa-cookie2 proxy/token flow used by Homebridge."""
+"""Python port of the alexa-cookie2 proxy/token flow used by Homebridge.
+
+The proxy is served at the *root* of a dedicated host/port (just like
+``alexa-cookie2`` runs on ``proxyOwnIp:proxyPort``). This is required so that
+Amazon's CVF (mobile verification) single-page app, which issues root-relative
+AJAX requests such as ``/ap/cvf/verify``, is intercepted and routed through the
+proxy. A sub-path proxy (e.g. ``/auth/.../proxy``) cannot capture those
+root-relative requests, which is why CVF verification fails there.
+"""
 
 from __future__ import annotations
 
@@ -6,21 +14,24 @@ from base64 import b64encode, urlsafe_b64encode
 from dataclasses import dataclass
 from hashlib import sha256
 import json
-from multidict import CIMultiDict
-import re
 import secrets
 import time
 from typing import Any
 from urllib.parse import parse_qs, urlencode
 
-from aiohttp import ClientSession, web
+from aiohttp import ClientSession, DummyCookieJar, web
+from multidict import CIMultiDict
 from yarl import URL
 
 from .const import USER_AGENT
-from .models import AmazonThermostatAuthError, AmazonThermostatApiError
+from .models import AmazonThermostatApiError, AmazonThermostatAuthError
 
 API_CALL_VERSION = "2.2.556530.0"
 API_CALL_USER_AGENT = "AmazonWebView/Amazon Alexa/2.2.556530.0/iOS/16.6/iPhone"
+PROXY_USER_AGENT = (
+    "AppleWebKit PitanguiBridge/2.2.485407.0-"
+    "[HARDWARE=iPhone10_4][SOFTWARE=15.5][DEVICE=iPhone]"
+)
 DEFAULT_ACCEPT_LANGUAGE = "en-US"
 DEFAULT_PROXY_LANGUAGE = "en_US"
 DEFAULT_DEVICE_APP_NAME = "Home Assistant"
@@ -57,6 +68,7 @@ class Cookie2State:
 
     def __post_init__(self) -> None:
         """Populate generated values in the same shape as alexa-cookie2."""
+        self.proxy_base_url = self.proxy_base_url.rstrip("/")
         self.frc = self.frc or b64encode(secrets.token_bytes(313)).decode()
         self.map_md = self.map_md or b64encode(
             json.dumps(
@@ -106,7 +118,7 @@ class Cookie2State:
 
 
 class Cookie2LoginProxy:
-    """Small reverse proxy compatible with alexa-cookie2's login flow."""
+    """Root-mounted reverse proxy compatible with alexa-cookie2's login flow."""
 
     def __init__(self, session: ClientSession, state: Cookie2State) -> None:
         """Initialize the proxy."""
@@ -116,8 +128,18 @@ class Cookie2LoginProxy:
     async def handle(self, request: web.Request, **_: Any) -> web.StreamResponse:
         """Proxy one Amazon login request."""
         target_url = self._target_url(request)
+
+        # Amazon's OAuth success lands on /ap/maplanding with the auth code.
+        if "/ap/maplanding" in target_url.path:
+            self._capture_success(str(target_url))
+            raise web.HTTPFound(self.state.callback_url)
+
         headers = self._request_headers(request, target_url)
-        body = await request.read() if request.method in {"POST", "PUT", "PATCH"} else None
+        body = (
+            await request.read()
+            if request.method in {"POST", "PUT", "PATCH"}
+            else None
+        )
 
         async with self._session.request(
             request.method,
@@ -132,12 +154,14 @@ class Cookie2LoginProxy:
                 self._capture_success(location)
                 raise web.HTTPFound(self.state.callback_url)
             if location:
-                raise web.HTTPFound(self._rewrite_to_proxy(location, target_url.host))
+                raise web.HTTPFound(
+                    self._rewrite_to_proxy(location, target_url.host)
+                )
 
             content = await response.read()
             outgoing_headers = self._response_headers(response.headers)
             content_type = response.headers.get("Content-Type", "")
-            if b"text/html" in content_type.encode() or b"text/javascript" in content_type.encode():
+            if "text/html" in content_type or "text/javascript" in content_type:
                 content = self._rewrite_body(content)
             return web.Response(
                 status=response.status,
@@ -146,48 +170,63 @@ class Cookie2LoginProxy:
             )
 
     def _target_url(self, request: web.Request) -> URL:
-        """Map a proxy request to an Amazon URL."""
+        """Map a proxy request to an Amazon URL.
+
+        Host-prefixed paths (``/www.amazon.com/...``) route directly. Bare
+        root-relative paths (``/ap/cvf/verify``) are routed using the Referer,
+        mirroring alexa-cookie2's router.
+        """
         tail = request.match_info.get("tail", "")
+        query = request.query_string
+        suffix = f"?{query}" if query else ""
+        domain = self.state.amazon_domain
         if not tail:
             return URL(self.state.initial_url)
-        if tail.startswith(f"www.{self.state.amazon_domain}/"):
-            rest = tail.removeprefix(f"www.{self.state.amazon_domain}")
-            return URL(f"https://www.{self.state.amazon_domain}{rest}").with_query(
-                request.query
-            )
-        if tail.startswith(f"alexa.{self.state.amazon_domain}/"):
-            rest = tail.removeprefix(f"alexa.{self.state.amazon_domain}")
-            return URL(f"https://alexa.{self.state.amazon_domain}{rest}").with_query(
-                request.query
-            )
-        return URL(f"https://www.{self.state.amazon_domain}/{tail}").with_query(
-            request.query
-        )
+        if tail == f"www.{domain}" or tail.startswith(f"www.{domain}/"):
+            rest = tail[len(f"www.{domain}") :] or "/"
+            return URL(f"https://www.{domain}{rest}{suffix}", encoded=True)
+        if tail == f"alexa.{domain}" or tail.startswith(f"alexa.{domain}/"):
+            rest = tail[len(f"alexa.{domain}") :] or "/"
+            return URL(f"https://alexa.{domain}{rest}{suffix}", encoded=True)
+        referer = request.headers.get("Referer", "")
+        host = f"alexa.{domain}" if f"/alexa.{domain}/" in referer else f"www.{domain}"
+        return URL(f"https://{host}/{tail}{suffix}", encoded=True)
 
-    def _request_headers(self, request: web.Request, target_url: URL) -> dict[str, str]:
-        """Build upstream request headers."""
-        headers = {
-            "User-Agent": "AppleWebKit PitanguiBridge/2.2.485407.0-[HARDWARE=iPhone10_4][SOFTWARE=15.5][DEVICE=iPhone]",
-            "Accept-Language": self.state.accept_language,
-            "Accept": request.headers.get("Accept", "*/*"),
-            "Connection": "keep-alive",
-            "Host": target_url.host,
+    def _request_headers(
+        self, request: web.Request, target_url: URL
+    ) -> dict[str, str]:
+        """Build upstream request headers.
+
+        Most browser headers are forwarded so Amazon's anti-CSRF and CVF AJAX
+        headers survive; only host/cookie/referer/origin are rewritten.
+        """
+        skip = {"host", "cookie", "referer", "origin", "content-length", "accept-encoding"}
+        headers: dict[str, str] = {
+            key: value
+            for key, value in request.headers.items()
+            if key.lower() not in skip
         }
-        if request.content_type:
-            headers["Content-Type"] = request.content_type
+        headers["User-Agent"] = request.headers.get("User-Agent", PROXY_USER_AGENT)
+        headers["Host"] = target_url.host or ""
+
         cookie = request.headers.get("Cookie", "")
         initial_cookies = {"frc": self.state.frc, "map-md": self.state.map_md}
-        cookie = _add_cookie_string(cookie, initial_cookies)
+        # Replay accumulated server-side cookies (like alexa-cookie2) so cookies
+        # the browser dropped due to path/SameSite scoping still reach Amazon.
+        existing = _parse_cookie_string(self.state.proxy_cookie)
+        existing.update(_parse_cookie_string(cookie))
+        for name, value in initial_cookies.items():
+            existing.setdefault(name, value)
+        headers["Cookie"] = _format_cookie_string(existing)
+        # Keep accumulating initial cookies for the final token registration.
         self.state.proxy_cookie = _add_cookie_string(
             self.state.proxy_cookie, initial_cookies
         )
-        if self.state.proxy_cookie:
-            cookie = _add_cookie_string(cookie, _parse_cookie_string(self.state.proxy_cookie))
-        headers["Cookie"] = cookie
+
         if referer := request.headers.get("Referer"):
             headers["Referer"] = self._rewrite_back(referer)
-        if request.method == "POST":
-            headers["Origin"] = f"https://www.{self.state.amazon_domain}"
+        if request.method in {"POST", "PUT", "PATCH"}:
+            headers["Origin"] = f"https://{target_url.host}"
         return headers
 
     def _capture_set_cookies(self, set_cookies: list[str]) -> None:
@@ -211,65 +250,42 @@ class Cookie2LoginProxy:
             self.state.authorization_code = values[0]
 
     def _rewrite_to_proxy(self, location: str, request_host: str | None = None) -> str:
-        """Rewrite Amazon redirects back through the HA proxy route."""
+        """Rewrite Amazon redirects back through the proxy."""
         if location.startswith("/"):
             host = request_host or f"www.{self.state.amazon_domain}"
             return f"{self.state.proxy_base_url}/{host}{location}"
+        return self._rewrite_absolute(location)
+
+    def _rewrite_absolute(self, value: str) -> str:
+        """Rewrite absolute Amazon URLs to proxy URLs."""
+        domain = self.state.amazon_domain
+        base = self.state.proxy_base_url
         return (
-            location.replace(
-                f"https://www.{self.state.amazon_domain}/",
-                f"{self.state.proxy_base_url}/www.{self.state.amazon_domain}/",
-            )
-            .replace(
-                f"http://www.{self.state.amazon_domain}/",
-                f"{self.state.proxy_base_url}/www.{self.state.amazon_domain}/",
-            )
-            .replace(
-                f"https://alexa.{self.state.amazon_domain}/",
-                f"{self.state.proxy_base_url}/alexa.{self.state.amazon_domain}/",
-            )
+            value.replace(f"https://www.{domain}/", f"{base}/www.{domain}/")
+            .replace(f"http://www.{domain}/", f"{base}/www.{domain}/")
+            .replace(f"https://alexa.{domain}/", f"{base}/alexa.{domain}/")
+            .replace(f"http://alexa.{domain}/", f"{base}/alexa.{domain}/")
         )
 
     def _rewrite_back(self, value: str) -> str:
-        """Rewrite proxy URLs back to Amazon URLs for upstream headers/forms."""
+        """Rewrite proxy URLs back to Amazon URLs for upstream headers."""
+        domain = self.state.amazon_domain
+        base = self.state.proxy_base_url
         return (
-            value.replace(
-                f"{self.state.proxy_base_url}/www.{self.state.amazon_domain}/",
-                f"https://www.{self.state.amazon_domain}/",
-            )
-            .replace(
-                f"{self.state.proxy_base_url}/alexa.{self.state.amazon_domain}/",
-                f"https://alexa.{self.state.amazon_domain}/",
-            )
-            .replace(f"{self.state.proxy_base_url}/", self.state.initial_url)
+            value.replace(f"{base}/www.{domain}/", f"https://www.{domain}/")
+            .replace(f"{base}/alexa.{domain}/", f"https://alexa.{domain}/")
+            .replace(f"{base}/", f"https://www.{domain}/")
         )
 
     def _rewrite_body(self, body: bytes) -> bytes:
-        """Rewrite Amazon links in response bodies to the proxy."""
-        text = body.decode(errors="ignore").replace("&#x2F;", "/")
-        text = text.replace(
-            f"https://www.{self.state.amazon_domain}/",
-            f"{self.state.proxy_base_url}/www.{self.state.amazon_domain}/",
-        )
-        text = text.replace(
-            f"http://www.{self.state.amazon_domain}/",
-            f"{self.state.proxy_base_url}/www.{self.state.amazon_domain}/",
-        )
-        text = text.replace(
-            f"https://alexa.{self.state.amazon_domain}/",
-            f"{self.state.proxy_base_url}/alexa.{self.state.amazon_domain}/",
-        )
-        text = re.sub(
-            r'(?P<attr>\b(?:action|href|src)=["\'])/(?!/)',
-            rf"\g<attr>{self.state.proxy_base_url}/www.{self.state.amazon_domain}/",
-            text,
-        )
-        text = re.sub(
-            r"url\(/(?!/)",
-            f"url({self.state.proxy_base_url}/www.{self.state.amazon_domain}/",
-            text,
-        )
-        return text.encode()
+        """Rewrite absolute Amazon links in response bodies to the proxy.
+
+        Root-relative links do not need rewriting because the proxy is mounted
+        at the host root and routes them via Referer.
+        """
+        return self._rewrite_absolute(
+            body.decode(errors="ignore").replace("&#x2F;", "/")
+        ).encode()
 
     def _response_headers(self, headers: Any) -> CIMultiDict[str]:
         """Return safe response headers for Home Assistant."""
@@ -285,23 +301,65 @@ class Cookie2LoginProxy:
         return result
 
     def _rewrite_set_cookie(self, value: str) -> str:
-        """Rewrite Amazon cookies so browser-side CVF pages can use them."""
+        """Make cookies host-wide on the proxy origin.
+
+        Domain and Secure are stripped (single HTTP origin). Path is rewritten
+        to ``/`` because multiple Amazon hosts/paths are collapsed onto one
+        proxy origin, so the browser must send every cookie on every request
+        (e.g. root-relative ``/ap/cvf/verify``).
+        """
         parts = []
-        proxy_path = URL(self.state.proxy_base_url).path or "/"
-        path_added = False
+        has_path = False
         for part in value.split(";"):
             stripped = part.strip()
             lower = stripped.lower()
             if lower == "secure" or lower.startswith("domain="):
                 continue
             if lower.startswith("path="):
-                parts.append(f"Path={proxy_path}")
-                path_added = True
+                parts.append("Path=/")
+                has_path = True
                 continue
             parts.append(stripped)
-        if not path_added:
-            parts.append(f"Path={proxy_path}")
+        if not has_path:
+            parts.append("Path=/")
         return "; ".join(parts)
+
+
+class Cookie2ProxyServer:
+    """Standalone root-mounted aiohttp server hosting the login proxy."""
+
+    def __init__(self, state: Cookie2State) -> None:
+        """Initialize the proxy server."""
+        self.state = state
+        self.session: ClientSession | None = None
+        self.port: int | None = None
+        self._runner: web.AppRunner | None = None
+
+    async def start(self, bind_host: str, port: int) -> int:
+        """Start the proxy server, returning the bound port."""
+        self.session = ClientSession(cookie_jar=DummyCookieJar())
+        proxy = Cookie2LoginProxy(self.session, self.state)
+        app = web.Application()
+        app.router.add_route("*", "/{tail:.*}", proxy.handle)
+        self._runner = web.AppRunner(app)
+        await self._runner.setup()
+        site = web.TCPSite(self._runner, bind_host, port)
+        try:
+            await site.start()
+        except OSError:
+            await self.stop()
+            raise
+        self.port = port
+        return port
+
+    async def stop(self) -> None:
+        """Stop the proxy server and release resources."""
+        if self._runner is not None:
+            await self._runner.cleanup()
+            self._runner = None
+        if self.session is not None and not self.session.closed:
+            await self.session.close()
+            self.session = None
 
 
 async def complete_cookie2_login(

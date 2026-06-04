@@ -12,10 +12,11 @@
       },
       "cookie2_credentials": {
         "title": "Amazon login",
-        "description": "Confirm the Home Assistant callback URLs. The next step opens an Amazon login page using a Homebridge-compatible flow. Enter your Amazon credentials on that Amazon page.",
+        "description": "The next step opens a temporary login proxy that runs on its own port (Homebridge alexa-cookie2 style). Set the proxy port and open the proxy URL from a browser on a device WITHOUT the Alexa app installed.",
         "data": {
           "hass_url": "Home Assistant URL",
-          "public_url": "External Home Assistant URL (optional)"
+          "public_url": "External Home Assistant URL (optional)",
+          "proxy_port": "Login proxy port"
         }
       },
       "alexapy_credentials": {
@@ -49,7 +50,8 @@
       "alexapy_not_installed": "The alexapy dependency is not installed.",
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
-      "invalid_url": "The Home Assistant URL is invalid."
+      "invalid_url": "The Home Assistant URL is invalid.",
+      "proxy_port_in_use": "The login proxy port is already in use. Choose a different port."
     },
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_account%]",

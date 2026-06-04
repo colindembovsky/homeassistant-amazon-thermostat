@@ -211,7 +211,7 @@ def test_cookie2_state_builds_homebridge_style_oauth_url() -> None:
     """Cookie2 login starts with the alexa-cookie2 device OAuth URL."""
     state = Cookie2State(
         amazon_domain="amazon.com",
-        proxy_base_url="http://homeassistant.local:8123/auth/amazon_thermostat/proxy",
+        proxy_base_url="http://homeassistant.local:8124",
         callback_url="http://homeassistant.local:8123/auth/amazon_thermostat/callback",
         flow_id="flow",
     )
@@ -222,35 +222,78 @@ def test_cookie2_state_builds_homebridge_style_oauth_url() -> None:
     assert "openid.oa2.code_challenge=" in state.initial_url
 
 
-def test_cookie2_proxy_rewrites_root_relative_cvf_urls() -> None:
-    """HA-mounted proxy rewrites Amazon root-relative CVF form targets."""
+def test_cookie2_proxy_rewrites_absolute_amazon_urls_in_body() -> None:
+    """Root proxy rewrites absolute Amazon URLs to proxy URLs."""
     state = Cookie2State(
         amazon_domain="amazon.com",
-        proxy_base_url="http://homeassistant.local:8123/auth/amazon_thermostat/proxy",
+        proxy_base_url="http://homeassistant.local:8124",
         callback_url="http://homeassistant.local:8123/auth/amazon_thermostat/callback",
         flow_id="flow",
     )
     proxy = Cookie2LoginProxy(None, state)  # type: ignore[arg-type]
 
-    body = b'<form action="/ap/cvf/verify"><a href="/ap/signin">Continue</a></form>'
+    body = (
+        b'<a href="https://www.amazon.com/ap/signin">In</a>'
+        b'<img src="https://alexa.amazon.com/spa/x.png">'
+    )
 
     rewritten = proxy._rewrite_body(body).decode()
 
+    assert 'href="http://homeassistant.local:8124/www.amazon.com/ap/signin"' in rewritten
+    assert 'src="http://homeassistant.local:8124/alexa.amazon.com/spa/x.png"' in rewritten
+
+
+def test_cookie2_proxy_routes_root_relative_via_referer() -> None:
+    """Root-relative CVF requests route to Amazon using the Referer host."""
+    state = Cookie2State(
+        amazon_domain="amazon.com",
+        proxy_base_url="http://homeassistant.local:8124",
+        callback_url="http://homeassistant.local:8123/auth/amazon_thermostat/callback",
+        flow_id="flow",
+    )
+    proxy = Cookie2LoginProxy(None, state)  # type: ignore[arg-type]
+
+    class _FakeRequest:
+        def __init__(self, tail: str, query: str, referer: str) -> None:
+            self.match_info = {"tail": tail}
+            self.query_string = query
+            self.headers = {"Referer": referer} if referer else {}
+
+    # Root-relative AJAX during CVF, referred to by a www page.
+    www_req = _FakeRequest(
+        "ap/cvf/verify",
+        "arb=123",
+        "http://homeassistant.local:8124/www.amazon.com/ap/cvf/request",
+    )
     assert (
-        'action="http://homeassistant.local:8123/auth/amazon_thermostat/proxy/'
-        'www.amazon.com/ap/cvf/verify"'
-    ) in rewritten
+        str(proxy._target_url(www_req))  # type: ignore[arg-type]
+        == "https://www.amazon.com/ap/cvf/verify?arb=123"
+    )
+
+    # Host-prefixed path routes directly.
+    prefixed = _FakeRequest("www.amazon.com/ap/signin", "", "")
     assert (
-        'href="http://homeassistant.local:8123/auth/amazon_thermostat/proxy/'
-        'www.amazon.com/ap/signin"'
-    ) in rewritten
+        str(proxy._target_url(prefixed))  # type: ignore[arg-type]
+        == "https://www.amazon.com/ap/signin"
+    )
+
+    # Referer pointing at the alexa host routes there.
+    alexa_req = _FakeRequest(
+        "api/devices",
+        "",
+        "http://homeassistant.local:8124/alexa.amazon.com/spa/index.html",
+    )
+    assert (
+        str(proxy._target_url(alexa_req))  # type: ignore[arg-type]
+        == "https://alexa.amazon.com/api/devices"
+    )
 
 
 def test_cookie2_proxy_rewrites_set_cookie_for_browser_cvf() -> None:
     """Amazon cookies are forwarded as host cookies for browser-side CVF pages."""
     state = Cookie2State(
         amazon_domain="amazon.com",
-        proxy_base_url="http://homeassistant.local:8123/auth/amazon_thermostat/proxy",
+        proxy_base_url="http://homeassistant.local:8124",
         callback_url="http://homeassistant.local:8123/auth/amazon_thermostat/callback",
         flow_id="flow",
     )
@@ -260,7 +303,4 @@ def test_cookie2_proxy_rewrites_set_cookie_for_browser_cvf() -> None:
         "session-id=abc; Domain=.amazon.com; Path=/ap; Secure; HttpOnly"
     )
 
-    assert (
-        cookie
-        == "session-id=abc; Path=/auth/amazon_thermostat/proxy; HttpOnly"
-    )
+    assert cookie == "session-id=abc; Path=/; HttpOnly"
