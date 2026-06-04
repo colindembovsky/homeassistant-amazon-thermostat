@@ -7,6 +7,7 @@ from hashlib import sha256
 import html
 import logging
 from typing import Any
+from urllib.parse import urlencode
 
 from aiohttp import web, web_response
 from aiohttp.web_exceptions import HTTPBadRequest
@@ -279,8 +280,9 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
             .with_path(AUTH_CALLBACK_PATH)
             .with_query({"flow_id": self.flow_id})
         )
-        proxy_url = self._proxy.access_url().with_query(
-            {"config_flow_id": self.flow_id, "callback_url": str(callback_url)}
+        proxy_url = URL(
+            f"{self._proxy.access_url()}?"
+            f"{urlencode({'config_flow_id': self.flow_id, 'callback_url': str(callback_url)})}"
         )
         self._login._session.cookie_jar.clear()
         self._login.proxy_url = proxy_url
