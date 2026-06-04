@@ -3,6 +3,7 @@
   "name": "Amazon Thermostat",
   "codeowners": ["@colindembovsky"],
   "config_flow": true,
+  "dependencies": ["http"],
   "documentation": "https://github.com/colindembovsky/homeassistant-amazon-thermostat",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
