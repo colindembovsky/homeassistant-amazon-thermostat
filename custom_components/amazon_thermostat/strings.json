@@ -3,10 +3,9 @@
     "step": {
       "user": {
         "title": "Amazon Thermostat",
-        "description": "Choose your Amazon region and authentication method. Guided Amazon login is recommended.",
+        "description": "Choose your Amazon region and polling interval. The next step opens a guided Amazon login.",
         "data": {
           "amazon_domain": "Amazon domain",
-          "auth_method": "Authentication method",
           "poll_interval": "Polling interval in seconds"
         }
       },
@@ -17,22 +16,6 @@
           "hass_url": "Home Assistant URL",
           "public_url": "External Home Assistant URL (optional)",
           "proxy_port": "Login proxy port"
-        }
-      },
-      "alexapy_credentials": {
-        "title": "Fallback Amazon login",
-        "description": "Confirm the Home Assistant callback URLs. The next step opens an Amazon login page using the fallback alexapy flow.",
-        "data": {
-          "hass_url": "Home Assistant URL",
-          "public_url": "External Home Assistant URL (optional)"
-        }
-      },
-      "manual": {
-        "title": "Advanced manual authentication",
-        "description": "Paste an Alexa web cookie header and matching CSRF token. Use this only if guided login is unavailable.",
-        "data": {
-          "cookie": "Alexa cookie header",
-          "csrf": "CSRF token"
         }
       },
       "check_proxy": {
@@ -47,9 +30,7 @@
       }
     },
     "error": {
-      "alexapy_not_installed": "The alexapy dependency is not installed.",
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
-      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
       "invalid_url": "The Home Assistant URL is invalid.",
       "proxy_port_in_use": "The login proxy port is already in use. Choose a different port."
     },

@@ -9,10 +9,9 @@ read current temperature/humidity/mode/setpoints, and send set-temperature comma
 
 ## Current status
 
-This is an early implementation scaffold. The primary setup path now uses a
-Python port of the Homebridge `alexa-cookie2` login flow to open a guided
-Amazon login through Home Assistant. The older `alexapy` flow and a manual Alexa
-web cookie + CSRF setup path remain available as fallbacks.
+Setup uses a Python port of the Homebridge `alexa-cookie2` login flow to open a
+guided Amazon login through Home Assistant. This is the only supported
+authentication method.
 
 ## Supported features
 
@@ -69,21 +68,19 @@ integration from **Settings > Devices & services**.
 
 During setup:
 
-1. Choose your Amazon region.
-2. Keep **Guided Amazon login** selected. This is the Homebridge-compatible
-   `alexa-cookie2` flow ported to Python.
-3. Confirm the **Home Assistant URL**. The default is
+1. Choose your Amazon region and polling interval.
+2. Confirm the **Home Assistant URL**. The default is
    `http://homeassistant.local:8123/`.
-4. Optionally enter an **External Home Assistant URL** if you use Nabu Casa or a
+3. Optionally enter an **External Home Assistant URL** if you use Nabu Casa or a
    reverse proxy.
-5. Confirm the **Login proxy port** (default `8124`). The guided login runs a
+4. Confirm the **Login proxy port** (default `8124`). The guided login runs a
    small reverse proxy at the *root* of this dedicated port, mirroring how the
    Homebridge `alexa-cookie2` proxy runs on its own host/port. This is required
    so Amazon's mobile-verification (CVF) page — a single-page app that makes
    root-relative requests such as `/ap/cvf/verify` — is correctly intercepted.
    A Home Assistant sub-path proxy cannot capture those requests, which is why
    verification fails there.
-6. Complete the Amazon login page that opens through Home Assistant. It opens at
+5. Complete the Amazon login page that opens through Home Assistant. It opens at
    `http://homeassistant.local:8124/` (your host and chosen port). Enter your
    Amazon username, password, and MFA code on that Amazon page. For the best
    chance of success, open this from a device/browser that does **not** have the
@@ -99,11 +96,7 @@ The integration intentionally does not autofill Amazon credentials. This avoids
 blank Home Assistant form values interfering with Amazon's MFA or verification
 pages.
 
-If guided login is unavailable, try **Fallback: alexapy guided login**. If both
-guided methods fail, choose **Advanced: manual cookie and CSRF** and paste a
-current Alexa web cookie header plus its matching CSRF token.
-
-If Amazon still selects its phone/SMS verification path and says it cannot verify
+If Amazon selects its phone/SMS verification path and says it cannot verify
 your mobile number, use app-based MFA/TOTP on your Amazon account if available,
 open the login from a desktop browser without the Alexa app installed, and try
 setting **Home Assistant URL** to your instance's LAN IP address, for example

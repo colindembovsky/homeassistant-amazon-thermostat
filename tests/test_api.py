@@ -7,10 +7,7 @@ from typing import Any
 import pytest
 
 from custom_components.amazon_thermostat.api import AlexaThermostatApi
-from custom_components.amazon_thermostat.auth import (
-    Cookie2AuthSessionProvider,
-    ManualCookieAuthSessionProvider,
-)
+from custom_components.amazon_thermostat.auth import Cookie2AuthSessionProvider
 from custom_components.amazon_thermostat.cookie2 import Cookie2LoginProxy, Cookie2State
 from custom_components.amazon_thermostat.models import (
     AmazonThermostatApiError,
@@ -60,19 +57,25 @@ class FakeSession:
 
 
 def _api(session: FakeSession) -> AlexaThermostatApi:
-    """Build an API client with the manual auth provider."""
+    """Build an API client with the cookie2 auth provider."""
     return AlexaThermostatApi(
-        ManualCookieAuthSessionProvider(  # type: ignore[arg-type]
-            session, "amazon.com", "cookie=value", "csrf-token"
+        Cookie2AuthSessionProvider(  # type: ignore[arg-type]
+            session,
+            "amazon.com",
+            {"localCookie": "cookie=value", "csrf": "csrf-token"},
         )
     )
 
 
-class RefreshableProvider(ManualCookieAuthSessionProvider):
-    """Manual provider double that can refresh once."""
+class RefreshableProvider(Cookie2AuthSessionProvider):
+    """Cookie2 provider double that can refresh once."""
 
     def __init__(self, session: FakeSession) -> None:
-        super().__init__(session, "amazon.com", "cookie=value", "csrf-token")  # type: ignore[arg-type]
+        super().__init__(  # type: ignore[arg-type]
+            session,
+            "amazon.com",
+            {"localCookie": "cookie=value", "csrf": "csrf-token"},
+        )
         self.refreshes = 0
 
     async def async_refresh(self) -> bool:
@@ -169,23 +172,6 @@ async def test_auth_error_refreshes_and_retries_once() -> None:
 
     assert provider.refreshes == 1
     assert len(session.requests) == 2
-
-
-@pytest.mark.asyncio
-async def test_manual_provider_exports_and_redacts_request_headers() -> None:
-    """Manual provider builds request headers and export data."""
-    session = FakeSession()
-    provider = ManualCookieAuthSessionProvider(  # type: ignore[arg-type]
-        session, "amazon.com", "cookie=value", "csrf-token"
-    )
-
-    headers = await provider.async_get_headers()
-    entry_data = await provider.async_export_entry_data()
-
-    assert headers["Cookie"] == "cookie=value"
-    assert headers["csrf"] == "csrf-token"
-    assert entry_data["auth_method"] == "manual"
-    assert entry_data["amazon_domain"] == "amazon.com"
 
 
 @pytest.mark.asyncio
