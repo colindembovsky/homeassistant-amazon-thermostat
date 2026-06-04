@@ -260,6 +260,10 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
             timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)
         )
         self._proxy.change_login(self._login)
+        # Credentials are entered directly on Amazon's pages. The default alexapy
+        # proxy autofill modifier is useful when HA collects credentials, but with
+        # blank credentials it can overwrite Amazon form fields during CVF/MFA.
+        self._proxy.modifiers = {}
         if not self._proxy_view:
             self._proxy_view = AmazonThermostatAuthorizationProxyView(
                 self._proxy.all_handler

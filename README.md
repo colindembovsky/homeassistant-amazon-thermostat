@@ -74,6 +74,10 @@ During setup:
 5. Complete the Amazon login page that opens through Home Assistant. Enter your
    Amazon username, password, and MFA code on that Amazon page.
 
+The integration intentionally does not autofill Amazon credentials. This avoids
+blank Home Assistant form values interfering with Amazon's MFA or verification
+pages.
+
 If guided login is unavailable, choose **Advanced: manual cookie and CSRF** and
 paste a current Alexa web cookie header plus its matching CSRF token.
 
