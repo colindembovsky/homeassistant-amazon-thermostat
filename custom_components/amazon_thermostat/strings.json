@@ -12,13 +12,10 @@
       },
       "alexapy_credentials": {
         "title": "Amazon login",
-        "description": "Enter your Amazon account details. The next step opens a guided Amazon login page through Home Assistant.",
+        "description": "Confirm the Home Assistant callback URLs. The next step opens an Amazon login page where you enter your Amazon credentials.",
         "data": {
-          "email": "Amazon email",
-          "password": "Amazon password",
-          "otp_secret": "Authenticator app secret (optional)",
-          "hass_url": "Home Assistant internal URL",
-          "public_url": "Home Assistant external URL (optional)"
+          "hass_url": "Home Assistant URL",
+          "public_url": "External Home Assistant URL (optional)"
         }
       },
       "manual": {

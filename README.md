@@ -67,8 +67,12 @@ During setup:
 
 1. Choose your Amazon region.
 2. Keep **Guided Amazon login** selected.
-3. Enter your Amazon credentials and optional authenticator app secret.
-4. Complete the Amazon login page that opens through Home Assistant.
+3. Confirm the **Home Assistant URL**. The default is
+   `http://homeassistant.local:8123/`.
+4. Optionally enter an **External Home Assistant URL** if you use Nabu Casa or a
+   reverse proxy.
+5. Complete the Amazon login page that opens through Home Assistant. Enter your
+   Amazon username, password, and MFA code on that Amazon page.
 
 If guided login is unavailable, choose **Advanced: manual cookie and CSRF** and
 paste a current Alexa web cookie header plus its matching CSRF token.

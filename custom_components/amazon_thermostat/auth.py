@@ -18,7 +18,6 @@ from .const import (
     CONF_EMAIL,
     CONF_OAUTH,
     CONF_OTPSECRET,
-    CONF_PASSWORD,
     DEFAULT_AMAZON_DOMAIN,
     USER_AGENT,
 )
@@ -133,8 +132,6 @@ class AlexaPyAuthSessionProvider:
             CONF_AUTH_METHOD: AUTH_METHOD_ALEXAPY,
             CONF_AMAZON_DOMAIN: self.amazon_domain,
             CONF_EMAIL: self.login.email,
-            CONF_PASSWORD: self.login.password,
-            CONF_OTPSECRET: "",
             CONF_OAUTH: _oauth_data_from_login(self.login),
         }
 
@@ -207,7 +204,7 @@ def create_alexapy_login(
     return AlexaLogin(
         url=amazon_domain,
         email=data.get(CONF_EMAIL, ""),
-        password=data.get(CONF_PASSWORD, ""),
+        password=data.get("password", ""),
         outputpath=output_path,
         otp_secret=data.get(CONF_OTPSECRET, ""),
         oauth=data.get(CONF_OAUTH, {}),
@@ -225,4 +222,3 @@ def _oauth_data_from_login(login: Any) -> dict[str, Any]:
         "code_verifier": getattr(login, "code_verifier", None),
         "authorization_code": getattr(login, "authorization_code", None),
     }
-

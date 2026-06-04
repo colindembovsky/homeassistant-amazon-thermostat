@@ -34,7 +34,7 @@ AUTH_PROXY_NAME = f"{DOMAIN}_auth_proxy"
 AUTH_PROXY_PATH = f"/auth/{DOMAIN}/proxy"
 
 DEFAULT_AMAZON_DOMAIN = "amazon.com"
-DEFAULT_HASS_URL = "http://homeassistant.local:8123"
+DEFAULT_HASS_URL = "http://homeassistant.local:8123/"
 DEFAULT_POLL_INTERVAL = 60
 MIN_POLL_INTERVAL = 60
 MAX_POLL_INTERVAL = 3600

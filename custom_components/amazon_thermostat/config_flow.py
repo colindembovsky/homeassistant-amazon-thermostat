@@ -16,11 +16,9 @@ from yarl import URL
 
 from homeassistant.components.http.view import HomeAssistantView
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.const import CONF_PASSWORD
 from homeassistant.data_entry_flow import UnknownFlow
 from homeassistant.exceptions import Unauthorized
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .api import AlexaThermostatApi
 from .auth import (
@@ -42,7 +40,6 @@ from .const import (
     CONF_EMAIL,
     CONF_HASS_URL,
     CONF_OAUTH,
-    CONF_OTPSECRET,
     CONF_POLL_INTERVAL,
     CONF_PUBLIC_URL,
     DEFAULT_AMAZON_DOMAIN,
@@ -129,11 +126,6 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="alexapy_credentials",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_EMAIL, default=self._flow_data.get(CONF_EMAIL, "")): str,
-                    vol.Required(CONF_PASSWORD, default=self._flow_data.get(CONF_PASSWORD, "")): str,
-                    vol.Optional(
-                        CONF_OTPSECRET, default=self._flow_data.get(CONF_OTPSECRET, "")
-                    ): str,
                     vol.Optional(CONF_HASS_URL, default=self._default_hass_url()): str,
                     vol.Optional(CONF_PUBLIC_URL, default=self._default_public_url()): str,
                 }
@@ -182,7 +174,7 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
 
         return self.async_create_entry(
-            title=f"{self._login.email} ({self._flow_data[CONF_AMAZON_DOMAIN]})",
+            title=f"{self._account_label()} ({self._flow_data[CONF_AMAZON_DOMAIN]})",
             data=entry_data,
         )
 
@@ -296,8 +288,6 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
             CONF_AUTH_METHOD: AUTH_METHOD_ALEXAPY,
             CONF_AMAZON_DOMAIN: self._flow_data[CONF_AMAZON_DOMAIN],
             CONF_EMAIL: self._login.email,
-            CONF_PASSWORD: self._login.password,
-            CONF_OTPSECRET: self._flow_data.get(CONF_OTPSECRET, ""),
             CONF_POLL_INTERVAL: self._flow_data[CONF_POLL_INTERVAL],
             CONF_HASS_URL: self._flow_data.get(CONF_HASS_URL),
             CONF_PUBLIC_URL: self._flow_data.get(CONF_PUBLIC_URL),
@@ -311,20 +301,17 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
             },
         }
 
+    def _account_label(self) -> str:
+        """Return a non-empty account label for the config entry title."""
+        return self._login.email or self._login.customer_id or "Amazon account"
+
     def _default_hass_url(self) -> str:
         """Return a Home Assistant URL suitable for proxy callbacks."""
-        try:
-            return get_url(self.hass, allow_external=False)
-        except NoURLAvailableError:
-            return self._flow_data.get(CONF_HASS_URL, DEFAULT_HASS_URL)
+        return self._flow_data.get(CONF_HASS_URL, DEFAULT_HASS_URL)
 
     def _default_public_url(self) -> str:
         """Return the external Home Assistant URL when available."""
-        try:
-            url = get_url(self.hass, allow_internal=False)
-        except NoURLAvailableError:
-            return self._flow_data.get(CONF_PUBLIC_URL, "")
-        return url if url.endswith("/") else f"{url}/"
+        return self._flow_data.get(CONF_PUBLIC_URL, "")
 
 
 class AmazonThermostatAuthorizationCallbackView(HomeAssistantView):
