@@ -290,3 +290,66 @@ def test_cookie2_proxy_rewrites_set_cookie_for_browser_cvf() -> None:
     )
 
     assert cookie == "session-id=abc; Path=/; HttpOnly"
+
+
+class _AuthRequest:
+    """Minimal request double exposing query/cookies for _authorize."""
+
+    def __init__(
+        self, query: dict[str, str] | None = None, cookies: dict[str, str] | None = None
+    ) -> None:
+        self.query = query or {}
+        self.cookies = cookies or {}
+
+
+def _proxy_with_secret(secret: str) -> Cookie2LoginProxy:
+    state = Cookie2State(
+        amazon_domain="amazon.com",
+        proxy_base_url="http://homeassistant.local:8124",
+        callback_url="http://homeassistant.local:8123/auth/amazon_thermostat/callback",
+        flow_id="flow",
+        proxy_secret=secret,
+    )
+    return Cookie2LoginProxy(None, state)  # type: ignore[arg-type]
+
+
+def test_cookie2_proxy_rejects_request_without_secret() -> None:
+    """Requests lacking the per-flow secret are forbidden before upstream calls."""
+    from aiohttp import web
+
+    proxy = _proxy_with_secret("s3cr3t")
+
+    with pytest.raises(web.HTTPForbidden):
+        proxy._authorize(_AuthRequest())  # type: ignore[arg-type]
+
+    with pytest.raises(web.HTTPForbidden):
+        proxy._authorize(  # type: ignore[arg-type]
+            _AuthRequest(cookies={"__amzn_thermostat_proxy_auth": "wrong"})
+        )
+
+
+def test_cookie2_proxy_exchanges_secret_param_for_cookie() -> None:
+    """The entry secret is swapped for a host-wide cookie via redirect."""
+    from aiohttp import web
+
+    proxy = _proxy_with_secret("s3cr3t")
+
+    with pytest.raises(web.HTTPFound) as found:
+        proxy._authorize(  # type: ignore[arg-type]
+            _AuthRequest(query={"__amzn_thermostat_auth": "s3cr3t"})
+        )
+
+    morsel = found.value.cookies["__amzn_thermostat_proxy_auth"]
+    assert morsel.value == "s3cr3t"
+    assert morsel["path"] == "/"
+    assert morsel["httponly"]
+
+
+def test_cookie2_proxy_allows_request_with_valid_cookie() -> None:
+    """A request carrying the valid secret cookie is allowed through."""
+    proxy = _proxy_with_secret("s3cr3t")
+
+    # Should not raise.
+    proxy._authorize(  # type: ignore[arg-type]
+        _AuthRequest(cookies={"__amzn_thermostat_proxy_auth": "s3cr3t"})
+    )

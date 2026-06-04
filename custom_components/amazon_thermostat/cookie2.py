@@ -46,6 +46,14 @@ CSRF_PATHS = (
     "/api/strings",
 )
 
+# Query parameter (used once on the entry URL) and cookie name that gate the
+# login proxy behind an unguessable per-flow secret. The proxy binds to all
+# interfaces so the user's browser/device can reach it, so without this gate any
+# host on the network could drive the login and have the accumulated Amazon
+# session cookies replayed upstream (a confused-deputy against the account).
+PROXY_AUTH_PARAM = "__amzn_thermostat_auth"
+PROXY_AUTH_COOKIE = "__amzn_thermostat_proxy_auth"
+
 
 @dataclass
 class Cookie2State:
@@ -65,6 +73,7 @@ class Cookie2State:
     code_challenge: str = ""
     proxy_cookie: str = ""
     authorization_code: str | None = None
+    proxy_secret: str = ""
 
     def __post_init__(self) -> None:
         """Populate generated values in the same shape as alexa-cookie2."""
@@ -90,6 +99,13 @@ class Cookie2State:
             self.code_verifier = _base64url(secrets.token_bytes(32))
         if not self.code_challenge:
             self.code_challenge = _base64url(sha256(self.code_verifier.encode()).digest())
+        if not self.proxy_secret:
+            self.proxy_secret = secrets.token_urlsafe(32)
+
+    @property
+    def entry_url(self) -> str:
+        """Return the proxy entry URL carrying the one-time auth secret."""
+        return f"{self.proxy_base_url}/?{PROXY_AUTH_PARAM}={self.proxy_secret}"
 
     @property
     def initial_url(self) -> str:
@@ -127,6 +143,7 @@ class Cookie2LoginProxy:
 
     async def handle(self, request: web.Request, **_: Any) -> web.StreamResponse:
         """Proxy one Amazon login request."""
+        self._authorize(request)
         target_url = self._target_url(request)
 
         # Amazon's OAuth success lands on /ap/maplanding with the auth code.
@@ -168,6 +185,34 @@ class Cookie2LoginProxy:
                 body=content,
                 headers=outgoing_headers,
             )
+
+    def _authorize(self, request: web.Request) -> None:
+        """Authorize the downstream client against the per-flow secret.
+
+        The first navigation carries the secret as a query parameter; it is
+        exchanged for a host-wide cookie and the client is redirected to the
+        clean proxy root. Every subsequent request must present that cookie.
+        Requests without a valid secret are rejected before any Amazon request
+        is made or any accumulated session cookie is replayed.
+        """
+        param_secret = request.query.get(PROXY_AUTH_PARAM)
+        if param_secret is not None:
+            if not secrets.compare_digest(param_secret, self.state.proxy_secret):
+                raise web.HTTPForbidden(text="Invalid proxy authorization")
+            grant = web.HTTPFound(f"{self.state.proxy_base_url}/")
+            grant.set_cookie(
+                PROXY_AUTH_COOKIE,
+                self.state.proxy_secret,
+                path="/",
+                httponly=True,
+                samesite="Lax",
+            )
+            raise grant
+        cookie_secret = request.cookies.get(PROXY_AUTH_COOKIE, "")
+        if not cookie_secret or not secrets.compare_digest(
+            cookie_secret, self.state.proxy_secret
+        ):
+            raise web.HTTPForbidden(text="Unauthorized proxy request")
 
     def _target_url(self, request: web.Request) -> URL:
         """Map a proxy request to an Amazon URL.

@@ -82,3 +82,9 @@ During setup:
 Alexa session data can grant broad access to your Amazon account. Do not share logs
 or diagnostics unless sensitive fields have been redacted. This integration redacts
 stored cookie, CSRF, password, OAuth token, and session fields from diagnostics.
+
+The guided login proxy is served over plain HTTP on its dedicated port so your
+browser can reach it. To prevent another host on your network from driving the
+login or replaying your in-flight Amazon session cookies, every proxy request is
+gated by an unguessable per-login secret (issued as a host-wide cookie when the
+guided flow opens the login). Only run the login on a trusted network.

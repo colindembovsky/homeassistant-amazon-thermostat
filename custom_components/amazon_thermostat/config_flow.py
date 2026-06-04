@@ -227,7 +227,7 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
         self.hass.http.register_view(AmazonThermostatAuthorizationCallbackView())
 
         return self.async_external_step(
-            step_id="check_proxy", url=f"{proxy_base_url}/"
+            step_id="check_proxy", url=self._cookie2_state.entry_url
         )
 
     def _default_hass_url(self) -> str:
