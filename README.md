@@ -43,28 +43,21 @@ authentication method.
 
 The easiest way to install this integration is as a HACS custom repository:
 
-1. Push or fork this repository to GitHub.
-2. In Home Assistant, open **HACS**.
-3. Go to **HACS > Integrations**.
-4. Open the three-dot menu and choose **Custom repositories**.
-5. Add this repository URL, for example:
+1. In Home Assistant, open **HACS**.
+2. Go to **HACS > Integrations**.
+3. Open the three-dot menu and choose **Custom repositories**.
+4. Add this repository URL, for example:
 
    ```text
    https://github.com/colindembovsky/homeassistant-amazon-thermostat
    ```
 
-6. Set the category to **Integration**.
-7. Click **Add**.
-8. Search HACS for **Amazon Thermostat** and install it.
-9. Restart Home Assistant.
-10. Go to **Settings > Devices & services > Add Integration** and choose
+5. Set the category to **Integration**.
+6. Click **Add**.
+7. Search HACS for **Amazon Thermostat** and install it.
+8. Restart Home Assistant.
+9. Go to **Settings > Devices & services > Add Integration** and choose
     **Amazon Thermostat**.
-
-### Manual install fallback
-
-If you are not using HACS, copy `custom_components/amazon_thermostat` into your
-Home Assistant `custom_components` directory, restart Home Assistant, then add the
-integration from **Settings > Devices & services**.
 
 During setup:
 
