@@ -7,6 +7,8 @@ This integration is based on the behavior documented from
 It talks to Amazon's private Alexa Smart Home GraphQL API to discover thermostats,
 read current temperature/humidity/mode/setpoints, and send set-temperature commands.
 
+![Heat/Cool thermostat card in Home Assistant](docs/thermostat-card.png)
+
 ## Current status
 
 Setup uses a Python port of the Homebridge `alexa-cookie2` login flow to open a
