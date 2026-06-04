@@ -1,0 +1,60 @@
+Metadata-Version: 2.4
+Name: homeassistant-amazon-thermostat
+Version: 0.1.0
+Summary: Home Assistant custom integration for Alexa-connected thermostats
+License: MIT
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Provides-Extra: test
+Requires-Dist: aiohttp; extra == "test"
+Requires-Dist: pytest; extra == "test"
+Requires-Dist: pytest-asyncio; extra == "test"
+
+# Amazon Thermostat for Home Assistant
+
+Native Home Assistant custom integration for Alexa-connected thermostats.
+
+This integration is based on the behavior documented from
+[`homebridge-alexa-smarthome`](https://github.com/joeyhage/homebridge-alexa-smarthome).
+It talks to Amazon's private Alexa Smart Home GraphQL API to discover thermostats,
+read current temperature/humidity/mode/setpoints, and send set-temperature commands.
+
+## Current status
+
+This is an early implementation scaffold. It currently supports a manual Alexa web
+cookie + CSRF setup flow while the auth layer is kept isolated for future
+replacement with a richer `alexapy`-backed login flow.
+
+## Supported features
+
+- Alexa thermostat discovery
+- Current temperature
+- Target temperature
+- Heat/cool target range for Alexa `AUTO` mode
+- HVAC modes: heat, cool, heat/cool, off
+- ECO as a Home Assistant preset
+- Optional indoor humidity when Alexa exposes the `Indoor humidity` range feature
+
+## Known limitations
+
+- Amazon does not provide an official public API for this use case. The private API
+  can break without notice.
+- Initial authentication requires manually providing an Alexa web cookie and CSRF
+  token.
+- The integration intentionally does not expose `hvac_action` yet because the
+  upstream Homebridge implementation does not have a reliable source for active
+  heating/cooling state.
+- Polling is intentionally conservative to reduce rate-limiting risk.
+
+## Installation
+
+Copy `custom_components/amazon_thermostat` into your Home Assistant
+`custom_components` directory, restart Home Assistant, then add the integration
+from **Settings > Devices & services**.
+
+## Security warning
+
+Alexa web cookies can grant broad access to your Amazon account. Do not share logs
+or diagnostics unless sensitive fields have been redacted. This integration redacts
+stored cookie, CSRF, token, and session fields from diagnostics.
+

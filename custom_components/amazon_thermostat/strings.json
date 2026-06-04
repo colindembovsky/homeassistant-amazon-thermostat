@@ -1,0 +1,66 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Amazon Thermostat",
+        "description": "Choose your Amazon region and authentication method. Guided Amazon login is recommended.",
+        "data": {
+          "amazon_domain": "Amazon domain",
+          "auth_method": "Authentication method",
+          "poll_interval": "Polling interval in seconds"
+        }
+      },
+      "alexapy_credentials": {
+        "title": "Amazon login",
+        "description": "Enter your Amazon account details. The next step opens a guided Amazon login page through Home Assistant.",
+        "data": {
+          "email": "Amazon email",
+          "password": "Amazon password",
+          "otp_secret": "Authenticator app secret (optional)",
+          "hass_url": "Home Assistant internal URL",
+          "public_url": "Home Assistant external URL (optional)"
+        }
+      },
+      "manual": {
+        "title": "Advanced manual authentication",
+        "description": "Paste an Alexa web cookie header and matching CSRF token. Use this only if guided login is unavailable.",
+        "data": {
+          "cookie": "Alexa cookie header",
+          "csrf": "CSRF token"
+        }
+      },
+      "check_proxy": {
+        "title": "Complete Amazon login",
+        "description": "Sign in to Amazon in the opened window. Return here after the login page says it is complete.",
+        "data": {}
+      },
+      "finish_proxy": {
+        "title": "Finishing Amazon login",
+        "description": "Validating Amazon login and discovering thermostats.",
+        "data": {}
+      }
+    },
+    "error": {
+      "alexapy_not_installed": "The alexapy dependency is not installed.",
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "invalid_url": "The Home Assistant URL is invalid."
+    },
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_account%]",
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "login_failed": "Amazon login failed.",
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "current_temperature": {
+        "name": "Current temperature"
+      },
+      "indoor_humidity": {
+        "name": "Indoor humidity"
+      }
+    }
+  }
+}
