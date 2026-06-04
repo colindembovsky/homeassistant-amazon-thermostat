@@ -20,7 +20,6 @@ authentication method.
 - Target temperature
 - Heat/cool target range for Alexa `AUTO` mode
 - HVAC modes: heat, cool, heat/cool, off
-- ECO as a Home Assistant preset
 - Optional indoor humidity when Alexa exposes the `Indoor humidity` range feature
 
 ## Known limitations
@@ -35,6 +34,10 @@ authentication method.
 - The integration intentionally does not expose `hvac_action` yet because the
   upstream Homebridge implementation does not have a reliable source for active
   heating/cooling state.
+- ECO is not exposed as a settable preset. Many Alexa thermostats reject
+  `setThermostatMode ECO` with a `BAD_REQUEST` error, and the upstream Homebridge
+  plugin never writes ECO either. If the thermostat is placed in ECO elsewhere
+  (e.g. the Alexa app), it is reported as the heat/cool mode.
 - Polling is intentionally conservative to reduce rate-limiting risk.
 
 ## Installation

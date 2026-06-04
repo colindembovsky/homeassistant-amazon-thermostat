@@ -5,8 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.climate import (
-    PRESET_ECO,
-    PRESET_NONE,
     ClimateEntity,
     ClimateEntityFeature,
     HVACMode,
@@ -62,7 +60,6 @@ class AmazonThermostatClimate(
     _attr_has_entity_name = True
     _attr_name = None
     _attr_hvac_modes = [HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL, HVACMode.OFF]
-    _attr_preset_modes = [PRESET_NONE, PRESET_ECO]
     _attr_target_temperature_step = 1
 
     def __init__(
@@ -104,11 +101,9 @@ class AmazonThermostatClimate(
         at once makes the frontend render a single setpoint slider instead of
         the dual heat/cool handles.
         """
-        features = ClimateEntityFeature.PRESET_MODE
+        features = ClimateEntityFeature.TARGET_TEMPERATURE
         if self._has_range:
-            features |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
-        else:
-            features |= ClimateEntityFeature.TARGET_TEMPERATURE
+            features = ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
         return features
 
     @property
@@ -158,13 +153,6 @@ class AmazonThermostatClimate(
         """Return current HVAC mode."""
         return ALEXA_TO_HA_MODE.get(self._data.thermostat_mode)
 
-    @property
-    def preset_mode(self) -> str:
-        """Return current preset mode."""
-        if self._data.thermostat_mode == "ECO":
-            return PRESET_ECO
-        return PRESET_NONE
-
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set HVAC mode.
 
@@ -182,18 +170,6 @@ class AmazonThermostatClimate(
             )
         except AmazonThermostatError as err:
             raise HomeAssistantError(f"Failed to set HVAC mode: {err}") from err
-        await self.coordinator.async_request_refresh()
-
-    async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Set preset mode."""
-        if preset_mode == PRESET_NONE:
-            return
-        if preset_mode != PRESET_ECO:
-            raise HomeAssistantError(f"Unsupported preset mode: {preset_mode}")
-        try:
-            await self.coordinator.api.async_set_thermostat_mode(self._endpoint_id, "ECO")
-        except AmazonThermostatError as err:
-            raise HomeAssistantError(f"Failed to set preset mode: {err}") from err
         await self.coordinator.async_request_refresh()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
