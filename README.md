@@ -9,9 +9,10 @@ read current temperature/humidity/mode/setpoints, and send set-temperature comma
 
 ## Current status
 
-This is an early implementation scaffold. The primary setup path now uses
-`alexapy` to open a guided Amazon login flow through Home Assistant. An advanced
-manual Alexa web cookie + CSRF setup path remains available as a fallback.
+This is an early implementation scaffold. The primary setup path now uses a
+Python port of the Homebridge `alexa-cookie2` login flow to open a guided
+Amazon login through Home Assistant. The older `alexapy` flow and a manual Alexa
+web cookie + CSRF setup path remain available as fallbacks.
 
 ## Supported features
 
@@ -27,8 +28,11 @@ manual Alexa web cookie + CSRF setup path remains available as a fallback.
 
 - Amazon does not provide an official public API for this use case. The private API
   can break without notice.
-- Authentication uses the unofficial Alexa web login flow through `alexapy`; Amazon
-  can change this flow without notice.
+- Authentication uses an unofficial Alexa web login/device-registration flow;
+  Amazon can change this flow without notice.
+- Amazon's SMS/e-mail verification flow may fail in this unofficial proxy. Use
+  app-based MFA/TOTP for the best chance of success, and open the login URL from
+  a browser/device without the Alexa app installed.
 - The integration intentionally does not expose `hvac_action` yet because the
   upstream Homebridge implementation does not have a reliable source for active
   heating/cooling state.
@@ -66,7 +70,8 @@ integration from **Settings > Devices & services**.
 During setup:
 
 1. Choose your Amazon region.
-2. Keep **Guided Amazon login** selected.
+2. Keep **Guided Amazon login** selected. This is the Homebridge-compatible
+   `alexa-cookie2` flow ported to Python.
 3. Confirm the **Home Assistant URL**. The default is
    `http://homeassistant.local:8123/`.
 4. Optionally enter an **External Home Assistant URL** if you use Nabu Casa or a
@@ -78,8 +83,9 @@ The integration intentionally does not autofill Amazon credentials. This avoids
 blank Home Assistant form values interfering with Amazon's MFA or verification
 pages.
 
-If guided login is unavailable, choose **Advanced: manual cookie and CSRF** and
-paste a current Alexa web cookie header plus its matching CSRF token.
+If guided login is unavailable, try **Fallback: alexapy guided login**. If both
+guided methods fail, choose **Advanced: manual cookie and CSRF** and paste a
+current Alexa web cookie header plus its matching CSRF token.
 
 ## Security warning
 

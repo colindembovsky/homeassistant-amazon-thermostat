@@ -24,6 +24,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import AlexaThermostatApi
 from .auth import (
     AlexaPyAuthSessionProvider,
+    Cookie2AuthSessionProvider,
     ManualCookieAuthSessionProvider,
     create_alexapy_login,
 )
@@ -31,12 +32,14 @@ from .const import (
     AUTH_CALLBACK_NAME,
     AUTH_CALLBACK_PATH,
     AUTH_METHOD_ALEXAPY,
+    AUTH_METHOD_COOKIE2,
     AUTH_METHOD_MANUAL,
     AUTH_PROXY_NAME,
     AUTH_PROXY_PATH,
     CONF_AMAZON_DOMAIN,
     CONF_AUTH_METHOD,
     CONF_COOKIE,
+    CONF_COOKIE_DATA,
     CONF_CSRF,
     CONF_EMAIL,
     CONF_HASS_URL,
@@ -51,6 +54,7 @@ from .const import (
     MIN_POLL_INTERVAL,
     SUPPORTED_AMAZON_DOMAINS,
 )
+from .cookie2 import Cookie2LoginProxy, Cookie2State, complete_cookie2_login
 from .models import AmazonThermostatAuthError, AmazonThermostatError
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,6 +70,7 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
         self._flow_data: dict[str, Any] = {}
         self._login: Any | None = None
         self._proxy: Any | None = None
+        self._cookie2_state: Cookie2State | None = None
         self._proxy_view: AmazonThermostatAuthorizationProxyView | None = None
         self._reauth_entry: Any | None = None
 
@@ -77,7 +82,9 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
             self._flow_data.update(user_input)
             if user_input[CONF_AUTH_METHOD] == AUTH_METHOD_MANUAL:
                 return await self.async_step_manual()
-            return await self.async_step_alexapy_credentials()
+            if user_input[CONF_AUTH_METHOD] == AUTH_METHOD_ALEXAPY:
+                return await self.async_step_alexapy_credentials()
+            return await self.async_step_cookie2_credentials()
 
         return self.async_show_form(
             step_id="user",
@@ -87,10 +94,11 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_AMAZON_DOMAIN, default=DEFAULT_AMAZON_DOMAIN
                     ): vol.In(SUPPORTED_AMAZON_DOMAINS),
                     vol.Required(
-                        CONF_AUTH_METHOD, default=AUTH_METHOD_ALEXAPY
+                        CONF_AUTH_METHOD, default=AUTH_METHOD_COOKIE2
                     ): vol.In(
                         {
-                            AUTH_METHOD_ALEXAPY: "Guided Amazon login",
+                            AUTH_METHOD_COOKIE2: "Guided Amazon login",
+                            AUTH_METHOD_ALEXAPY: "Fallback: alexapy guided login",
                             AUTH_METHOD_MANUAL: "Advanced: manual cookie and CSRF",
                         }
                     ),
@@ -102,6 +110,29 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
                     ),
                 }
             ),
+        )
+
+    async def async_step_cookie2_credentials(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Collect proxy URLs and start the cookie2-compatible login."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            self._flow_data.update(user_input)
+            try:
+                return await self._async_start_cookie2_proxy()
+            except ValueError:
+                errors["base"] = "invalid_url"
+
+        return self.async_show_form(
+            step_id="cookie2_credentials",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_HASS_URL, default=self._default_hass_url()): str,
+                    vol.Optional(CONF_PUBLIC_URL, default=self._default_public_url()): str,
+                }
+            ),
+            errors=errors,
         )
 
     async def async_step_alexapy_credentials(
@@ -145,7 +176,10 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_finish_proxy(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Finish alexapy proxy auth."""
+        """Finish browser proxy auth."""
+        if self._flow_data.get(CONF_AUTH_METHOD) == AUTH_METHOD_COOKIE2:
+            return await self._async_finish_cookie2_proxy()
+
         if self._login is None:
             return self.async_abort(reason="login_failed")
 
@@ -176,6 +210,49 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_create_entry(
             title=f"{self._account_label()} ({self._flow_data[CONF_AMAZON_DOMAIN]})",
+            data=entry_data,
+        )
+
+    async def _async_finish_cookie2_proxy(self) -> ConfigFlowResult:
+        """Finish the cookie2-compatible proxy auth."""
+        if self._cookie2_state is None:
+            return self.async_abort(reason="login_failed")
+
+        session = async_get_clientsession(self.hass)
+        try:
+            cookie_data = await complete_cookie2_login(session, self._cookie2_state)
+            provider = Cookie2AuthSessionProvider(
+                session,
+                self._flow_data[CONF_AMAZON_DOMAIN],
+                cookie_data,
+            )
+            await AlexaThermostatApi(provider).async_validate_auth()
+        except AmazonThermostatAuthError:
+            return self.async_abort(reason="login_failed")
+        except AmazonThermostatError:
+            return self.async_abort(reason="cannot_connect")
+
+        unique_id = _account_unique_id(
+            cookie_data.get("refreshToken") or cookie_data.get("deviceId", ""),
+            self._flow_data[CONF_AMAZON_DOMAIN],
+        )
+        await self.async_set_unique_id(unique_id)
+        entry_data = {
+            CONF_AUTH_METHOD: AUTH_METHOD_COOKIE2,
+            CONF_AMAZON_DOMAIN: self._flow_data[CONF_AMAZON_DOMAIN],
+            CONF_COOKIE_DATA: cookie_data,
+            CONF_POLL_INTERVAL: self._flow_data[CONF_POLL_INTERVAL],
+            CONF_HASS_URL: self._flow_data.get(CONF_HASS_URL),
+            CONF_PUBLIC_URL: self._flow_data.get(CONF_PUBLIC_URL),
+        }
+        if self._reauth_entry:
+            return self.async_update_reload_and_abort(
+                self._reauth_entry,
+                data_updates=entry_data,
+            )
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(
+            title=f"Amazon Thermostat ({self._flow_data[CONF_AMAZON_DOMAIN]})",
             data=entry_data,
         )
 
@@ -243,7 +320,39 @@ class AmazonThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
         }
         if entry_data.get(CONF_AUTH_METHOD) == AUTH_METHOD_ALEXAPY:
             return await self.async_step_alexapy_credentials()
+        if entry_data.get(CONF_AUTH_METHOD) == AUTH_METHOD_COOKIE2:
+            return await self.async_step_cookie2_credentials()
         return await self.async_step_manual()
+
+    async def _async_start_cookie2_proxy(self) -> ConfigFlowResult:
+        """Start the cookie2-compatible browser proxy."""
+        public_url = self._flow_data.get(CONF_PUBLIC_URL) or self._flow_data.get(CONF_HASS_URL)
+        hass_url = public_url or self._default_hass_url()
+        proxy_base_url = str(URL(hass_url).with_path(AUTH_PROXY_PATH)).rstrip("/")
+        callback_url = str(
+            URL(hass_url)
+            .with_path(AUTH_CALLBACK_PATH)
+            .with_query({"flow_id": self.flow_id})
+        )
+        self._cookie2_state = Cookie2State(
+            amazon_domain=self._flow_data[CONF_AMAZON_DOMAIN],
+            proxy_base_url=proxy_base_url,
+            callback_url=callback_url,
+            flow_id=self.flow_id,
+        )
+        proxy = Cookie2LoginProxy(async_get_clientsession(self.hass), self._cookie2_state)
+        if not self._proxy_view:
+            self._proxy_view = AmazonThermostatAuthorizationProxyView(proxy.handle)
+        else:
+            self._proxy_view.handler = proxy.handle
+
+        self.hass.http.register_view(AmazonThermostatAuthorizationCallbackView())
+        self.hass.http.register_view(self._proxy_view)
+
+        proxy_url = URL(proxy_base_url).with_query(
+            {"config_flow_id": self.flow_id, "callback_url": callback_url}
+        )
+        return self.async_external_step(step_id="check_proxy", url=str(proxy_url))
 
     async def _async_start_proxy(self) -> ConfigFlowResult:
         """Start alexapy's browser-based proxy login."""

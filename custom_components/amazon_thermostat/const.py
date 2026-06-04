@@ -26,7 +26,9 @@ CONF_POLL_INTERVAL = "poll_interval"
 CONF_PUBLIC_URL = "public_url"
 
 AUTH_METHOD_ALEXAPY = "alexapy"
+AUTH_METHOD_COOKIE2 = "cookie2"
 AUTH_METHOD_MANUAL = "manual"
+CONF_COOKIE_DATA = "cookie_data"
 
 AUTH_CALLBACK_NAME = f"{DOMAIN}_auth_callback"
 AUTH_CALLBACK_PATH = f"/auth/{DOMAIN}/callback"

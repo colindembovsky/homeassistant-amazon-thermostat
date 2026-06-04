@@ -7,7 +7,11 @@ from typing import Any
 import pytest
 
 from custom_components.amazon_thermostat.api import AlexaThermostatApi
-from custom_components.amazon_thermostat.auth import ManualCookieAuthSessionProvider
+from custom_components.amazon_thermostat.auth import (
+    Cookie2AuthSessionProvider,
+    ManualCookieAuthSessionProvider,
+)
+from custom_components.amazon_thermostat.cookie2 import Cookie2State
 from custom_components.amazon_thermostat.models import (
     AmazonThermostatApiError,
     AmazonThermostatAuthError,
@@ -182,3 +186,37 @@ async def test_manual_provider_exports_and_redacts_request_headers() -> None:
     assert headers["csrf"] == "csrf-token"
     assert entry_data["auth_method"] == "manual"
     assert entry_data["amazon_domain"] == "amazon.com"
+
+
+@pytest.mark.asyncio
+async def test_cookie2_provider_uses_local_cookie_and_csrf() -> None:
+    """Cookie2 provider builds GraphQL headers from localCookie data."""
+    session = FakeSession()
+    provider = Cookie2AuthSessionProvider(  # type: ignore[arg-type]
+        session,
+        "amazon.com",
+        {"localCookie": "cookie=value", "csrf": "csrf-token", "refreshToken": "refresh"},
+    )
+
+    headers = await provider.async_get_headers()
+    entry_data = await provider.async_export_entry_data()
+
+    assert headers["Cookie"] == "cookie=value"
+    assert headers["csrf"] == "csrf-token"
+    assert entry_data["auth_method"] == "cookie2"
+    assert entry_data["cookie_data"]["refreshToken"] == "refresh"
+
+
+def test_cookie2_state_builds_homebridge_style_oauth_url() -> None:
+    """Cookie2 login starts with the alexa-cookie2 device OAuth URL."""
+    state = Cookie2State(
+        amazon_domain="amazon.com",
+        proxy_base_url="http://homeassistant.local:8123/auth/amazon_thermostat/proxy",
+        callback_url="http://homeassistant.local:8123/auth/amazon_thermostat/callback",
+        flow_id="flow",
+    )
+
+    assert state.initial_url.startswith("https://www.amazon.com/ap/signin?")
+    assert "openid.oa2.response_type=code" in state.initial_url
+    assert "openid.oa2.scope=device_auth_access" in state.initial_url
+    assert "openid.oa2.code_challenge=" in state.initial_url

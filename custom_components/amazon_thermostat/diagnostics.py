@@ -7,18 +7,32 @@ from typing import Any
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_COOKIE, CONF_CSRF, CONF_EMAIL, CONF_OAUTH, CONF_PASSWORD
+from .const import (
+    CONF_COOKIE,
+    CONF_COOKIE_DATA,
+    CONF_CSRF,
+    CONF_EMAIL,
+    CONF_OAUTH,
+    CONF_PASSWORD,
+)
 from .coordinator import AmazonThermostatConfigEntry
 
 TO_REDACT = {
     CONF_COOKIE,
+    CONF_COOKIE_DATA,
     CONF_CSRF,
     CONF_EMAIL,
     CONF_OAUTH,
     CONF_PASSWORD,
     "cookie",
-    "localCookie",
     "cookieData",
+    "cookie_data",
+    "deviceId",
+    "deviceSerial",
+    "frc",
+    "loginCookie",
+    "localCookie",
+    "map-md",
     "macDms",
     "mac_dms",
     "access_token",
