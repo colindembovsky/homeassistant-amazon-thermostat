@@ -11,7 +11,7 @@ from custom_components.amazon_thermostat.auth import (
     Cookie2AuthSessionProvider,
     ManualCookieAuthSessionProvider,
 )
-from custom_components.amazon_thermostat.cookie2 import Cookie2State
+from custom_components.amazon_thermostat.cookie2 import Cookie2LoginProxy, Cookie2State
 from custom_components.amazon_thermostat.models import (
     AmazonThermostatApiError,
     AmazonThermostatAuthError,
@@ -220,3 +220,44 @@ def test_cookie2_state_builds_homebridge_style_oauth_url() -> None:
     assert "openid.oa2.response_type=code" in state.initial_url
     assert "openid.oa2.scope=device_auth_access" in state.initial_url
     assert "openid.oa2.code_challenge=" in state.initial_url
+
+
+def test_cookie2_proxy_rewrites_root_relative_cvf_urls() -> None:
+    """HA-mounted proxy rewrites Amazon root-relative CVF form targets."""
+    state = Cookie2State(
+        amazon_domain="amazon.com",
+        proxy_base_url="http://homeassistant.local:8123/auth/amazon_thermostat/proxy",
+        callback_url="http://homeassistant.local:8123/auth/amazon_thermostat/callback",
+        flow_id="flow",
+    )
+    proxy = Cookie2LoginProxy(None, state)  # type: ignore[arg-type]
+
+    body = b'<form action="/ap/cvf/verify"><a href="/ap/signin">Continue</a></form>'
+
+    rewritten = proxy._rewrite_body(body).decode()
+
+    assert (
+        'action="http://homeassistant.local:8123/auth/amazon_thermostat/proxy/'
+        'www.amazon.com/ap/cvf/verify"'
+    ) in rewritten
+    assert (
+        'href="http://homeassistant.local:8123/auth/amazon_thermostat/proxy/'
+        'www.amazon.com/ap/signin"'
+    ) in rewritten
+
+
+def test_cookie2_proxy_rewrites_set_cookie_for_browser_cvf() -> None:
+    """Amazon cookies are forwarded as host cookies for browser-side CVF pages."""
+    state = Cookie2State(
+        amazon_domain="amazon.com",
+        proxy_base_url="http://homeassistant.local:8123/auth/amazon_thermostat/proxy",
+        callback_url="http://homeassistant.local:8123/auth/amazon_thermostat/callback",
+        flow_id="flow",
+    )
+    proxy = Cookie2LoginProxy(None, state)  # type: ignore[arg-type]
+
+    cookie = proxy._rewrite_set_cookie(
+        "session-id=abc; Domain=.amazon.com; Path=/; Secure; HttpOnly"
+    )
+
+    assert cookie == "session-id=abc; Path=/; HttpOnly"

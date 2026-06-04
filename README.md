@@ -87,6 +87,14 @@ If guided login is unavailable, try **Fallback: alexapy guided login**. If both
 guided methods fail, choose **Advanced: manual cookie and CSRF** and paste a
 current Alexa web cookie header plus its matching CSRF token.
 
+If the guided login reaches an `/ap/cvf/request` URL and Amazon says it cannot
+verify your mobile number, Amazon has selected its phone/SMS verification path.
+That path is unreliable in unofficial Alexa proxies. Use app-based MFA/TOTP on
+your Amazon account if available, open the login from a desktop browser without
+the Alexa app installed, and try setting **Home Assistant URL** to your
+instance's LAN IP address, for example `http://192.168.1.50:8123/`, instead of
+`homeassistant.local`.
+
 ## Security warning
 
 Alexa session data can grant broad access to your Amazon account. Do not share logs

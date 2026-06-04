@@ -6,6 +6,8 @@ from base64 import b64encode, urlsafe_b64encode
 from dataclasses import dataclass
 from hashlib import sha256
 import json
+from multidict import CIMultiDict
+import re
 import secrets
 import time
 from typing import Any
@@ -257,20 +259,41 @@ class Cookie2LoginProxy:
             f"https://alexa.{self.state.amazon_domain}/",
             f"{self.state.proxy_base_url}/alexa.{self.state.amazon_domain}/",
         )
+        text = re.sub(
+            r'(?P<attr>\b(?:action|href|src)=["\'])/(?!/)',
+            rf"\g<attr>{self.state.proxy_base_url}/www.{self.state.amazon_domain}/",
+            text,
+        )
+        text = re.sub(
+            r"url\(/(?!/)",
+            f"url({self.state.proxy_base_url}/www.{self.state.amazon_domain}/",
+            text,
+        )
         return text.encode()
 
-    def _response_headers(self, headers: Any) -> dict[str, str]:
+    def _response_headers(self, headers: Any) -> CIMultiDict[str]:
         """Return safe response headers for Home Assistant."""
         skip = {"content-length", "content-encoding", "transfer-encoding", "connection"}
-        result: dict[str, str] = {}
+        result: CIMultiDict[str] = CIMultiDict()
         for key, value in headers.items():
             lower = key.lower()
-            if lower in skip:
+            if lower in skip or lower == "set-cookie":
                 continue
-            if lower == "set-cookie":
-                value = value.replace("Secure", "")
-            result[key] = value
+            result.add(key, value)
+        for value in headers.getall("Set-Cookie", []):
+            result.add("Set-Cookie", self._rewrite_set_cookie(value))
         return result
+
+    def _rewrite_set_cookie(self, value: str) -> str:
+        """Rewrite Amazon cookies so browser-side CVF pages can use them."""
+        parts = []
+        for part in value.split(";"):
+            stripped = part.strip()
+            lower = stripped.lower()
+            if lower == "secure" or lower.startswith("domain="):
+                continue
+            parts.append(stripped)
+        return "; ".join(parts)
 
 
 async def complete_cookie2_login(
