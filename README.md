@@ -66,6 +66,8 @@ The easiest way to install this integration is as a HACS custom repository:
 
 During setup:
 
+![Amazon Thermostat setup dialog](docs/setup-config.png)
+
 1. Choose your Amazon region and polling interval.
 2. Confirm the **Home Assistant URL**. The default is
    `http://homeassistant.local:8123/`.
@@ -83,6 +85,8 @@ During setup:
    Amazon username, password, and MFA code on that Amazon page. For the best
    chance of success, open this from a device/browser that does **not** have the
    Alexa app installed.
+
+![Amazon Alexa guided login page](docs/alexa-login.png)
 
 > **Docker/Container note:** the login proxy binds the dedicated port (default
 > `8124`) on the Home Assistant host. On Home Assistant OS/Supervised this works
